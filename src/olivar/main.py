@@ -201,7 +201,7 @@ def tiling(ref_path: str, out_path: str, title: str, max_amp_len: int, min_amp_l
 
     # log to file, must happen after working_dir is created
     # if working_dir exist, it should be a directory as well
-    fileHandler = logging.FileHandler(os.path.join(out_path, f'{config['title']}.log'), mode='a')
+    fileHandler = logging.FileHandler(os.path.join(out_path, f"{config['title']}.log"), mode='a')
     fileHandler.setFormatter(logFormatter)
     logger.addHandler(fileHandler)
 
