@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Olivar 引物设计流程详解</title>
+<style>
+:root{--bg:#fafaf8;--fg:#1c1c1a;--mut:#63635e;--card:#fff;--line:#deded8;--acc:#1f6fb2;--acc2:#b25a1f;--ok:#2a7a43;--bad:#b3261e;--code:#f1f1ec;--box1:#e8f1fa;--box2:#fdf0e3;--box3:#e9f5ec;--box4:#f5e9f5}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#161615;--fg:#e8e8e3;--mut:#9a9a92;--card:#1f1f1d;--line:#35352f;--acc:#6db3ee;--acc2:#e8a36a;--ok:#6cc58a;--bad:#f08c84;--code:#26261f;--box1:#1b2a38;--box2:#35271a;--box3:#1b3022;--box4:#33223a}}
+:root[data-theme=dark]{--bg:#161615;--fg:#e8e8e3;--mut:#9a9a92;--card:#1f1f1d;--line:#35352f;--acc:#6db3ee;--acc2:#e8a36a;--ok:#6cc58a;--bad:#f08c84;--code:#26261f;--box1:#1b2a38;--box2:#35271a;--box3:#1b3022;--box4:#33223a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.7 -apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+.wrap{max-width:980px;margin:0 auto;padding:0 16px 80px}
+header{padding:48px 0 16px}
+h1{font-size:30px;line-height:1.25;margin:0 0 8px}
+.sub{color:var(--mut);margin:0}
+nav{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--line);z-index:5;overflow-x:auto;white-space:nowrap;margin:0 -16px;padding:0 16px}
+nav a{display:inline-block;padding:10px 12px;color:var(--mut);text-decoration:none;font-size:14px}
+nav a:hover{color:var(--acc)}
+h2{font-size:23px;margin:56px 0 12px;padding-top:8px}
+h3{font-size:18px;margin:32px 0 8px}
+p{margin:10px 0}
+code{background:var(--code);padding:1px 5px;border-radius:4px;font:13.5px ui-monospace,Menlo,Consolas,monospace}
+pre{background:var(--code);padding:12px 14px;border-radius:8px;overflow-x:auto;font:13px/1.55 ui-monospace,Menlo,Consolas,monospace}
+pre code{background:none;padding:0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:16px 0}
+.step{border-left:4px solid var(--acc);}
+.step h3{margin-top:0}
+.tag{display:inline-block;font-size:12px;padding:1px 8px;border-radius:99px;border:1px solid var(--line);color:var(--mut);margin-right:6px}
+.tag.ok{color:var(--ok);border-color:var(--ok)}.tag.bad{color:var(--bad);border-color:var(--bad)}
+table{border-collapse:collapse;width:100%;font-size:14.5px;margin:12px 0;display:block;overflow-x:auto}
+th,td{border-bottom:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{color:var(--mut);font-weight:600;white-space:nowrap}
+figure{margin:16px 0}figure img{max-width:100%;border:1px solid var(--line);border-radius:8px;background:#fff}
+figcaption{color:var(--mut);font-size:13.5px;margin-top:4px}
+.callout{border-left:4px solid var(--acc2);background:var(--card);padding:10px 16px;margin:16px 0;border-radius:0 8px 8px 0}
+.callout.bad{border-color:var(--bad)}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:16px 0}
+.kv div{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.kv b{display:block;font-size:24px;color:var(--acc)}
+.kv span{color:var(--mut);font-size:13.5px}
+svg text{fill:var(--fg);font:13px -apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+svg .t2{fill:var(--mut);font-size:11.5px}
+svg .b1{fill:var(--box1);stroke:var(--acc)}svg .b2{fill:var(--box2);stroke:var(--acc2)}svg .b3{fill:var(--box3);stroke:var(--ok)}svg .b4{fill:var(--box4);stroke:#9b59b6}
+svg rect{stroke-width:1.4}
+svg .ar{stroke:var(--mut);stroke-width:1.6;fill:none;marker-end:url(#ah)}
+.prio{display:inline-block;min-width:34px;text-align:center;font-weight:700;border-radius:6px;padding:0 6px;color:#fff}
+.p0{background:#b3261e}.p1{background:#b25a1f}.p2{background:#1f6fb2}
+.themebtn{float:right;margin-top:6px;background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:4px 10px;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<button class="themebtn" onclick="var r=document.documentElement;r.dataset.theme=(r.dataset.theme==='dark'||(!r.dataset.theme&&matchMedia('(prefers-color-scheme:dark)').matches))?'light':'dark'">明 / 暗</button>
+<h1>Olivar 多重 PCR 引物 tiling 设计：流程详解、复现与改进建议</h1>
+<p class="sub">基于仓库 <code>wangdang511/Olivar_primer</code>（版本 1.3.3）的逐行阅读，以及 <code>notebooks/Olivar_step_by_step.ipynb</code> 的逐步复现。文中所有“实测”数字均来自该 notebook 的实际运行。</p>
+</header>
+<nav>
+<a href="#overview">总览</a><a href="#flow">流程图</a><a href="#s1">1 风险索引</a><a href="#s2">2 PDR 搜索</a><a href="#s3">3 引物候选</a><a href="#s4">4 SADDLE</a><a href="#s5">5 输出与验证</a><a href="#repro">复现对照</a><a href="#issues">发现的问题</a><a href="#improve">改进建议</a><a href="#run">运行方式</a>
+</nav>
+
+<h2 id="overview">总览</h2>
+<p>Olivar 解决的是病毒/细菌全基因组<strong>扩增子 tiling（多重 PCR）</strong>的引物设计：用两管 pool，把整条基因组切成相邻重叠的扩增子，同时要求引物避开<strong>变异位点</strong>、<strong>非特异扩增位点</strong>、<strong>极端 GC / 低复杂度区域</strong>，并让同一管里的引物<strong>尽量少形成引物二聚体</strong>。</p>
+<div class="kv">
+<div><b>2 阶段</b><span><code>build</code> 建索引（风险数组）→ <code>tiling</code> 设计</span></div>
+<div><b>3 个核心思想</b><span>风险引导的 PDR 放置 · SADDLE 二聚体退火 · MSA/简并模式</span></div>
+<div><b>146 个扩增子</b><span>示例 SARS-CoV-2 (29.9 kb)，每管 73 个，平均 327 bp</span></div>
+<div><b>100% 复现</b><span>引物序列与官方 CSV 逐条一致（seed=10）</span></div>
+</div>
+
+<h2 id="flow">流程图</h2>
+<div class="card">
+<svg viewBox="0 0 900 760" width="100%" role="img" aria-label="Olivar workflow">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--mut)"/></marker></defs>
+<!-- inputs -->
+<rect class="b1" x="20" y="14" width="250" height="62" rx="10"/><text x="145" y="40" text-anchor="middle">参考序列 FASTA</text><text class="t2" x="145" y="60" text-anchor="middle">或 MSA（--msa，可 --align）</text>
+<rect class="b1" x="325" y="14" width="250" height="62" rx="10"/><text x="450" y="40" text-anchor="middle">变异表 CSV</text><text class="t2" x="450" y="60" text-anchor="middle">START / STOP / FREQ（MSA 模式自动生成）</text>
+<rect class="b1" x="630" y="14" width="250" height="62" rx="10"/><text x="755" y="40" text-anchor="middle">BLAST 背景库（可选）</text><text class="t2" x="755" y="60" text-anchor="middle">如人类基因组 GRCh38</text>
+<path class="ar" d="M145 76 L145 112"/><path class="ar" d="M450 76 L450 112 "/><path class="ar" d="M755 76 L755 112"/>
+<!-- build -->
+<rect class="b2" x="20" y="112" width="860" height="150" rx="10"/>
+<text x="40" y="136" style="font-weight:700">① build（build_helper.run_build）</text>
+<text class="t2" x="40" y="158">变异 → var_arr = sqrt(Σfreq)，变异位置小写→大写</text>
+<text class="t2" x="40" y="178">28 nt 窗口、步长 14 → 每窗口：GC、Shannon 复杂度(1/2/3-mer)、BLAST 命中数</text>
+<text class="t2" x="40" y="198">每个碱基取覆盖它的 2 个窗口的均值 → gc_arr、comp_arr、hits_arr</text>
+<text class="t2" x="40" y="218">（--deg）再算 sensi_arr（100−MSA 灵敏度）和 combi_arr（简并展开数−1）</text>
+<text class="t2" x="40" y="242">输出：Olivar 参考文件 .olvr（pickle）</text>
+<path class="ar" d="M450 262 L450 296"/>
+<!-- risk -->
+<rect class="b3" x="20" y="296" width="860" height="78" rx="10"/>
+<text x="40" y="320" style="font-weight:700">逐碱基风险 risk[i]（tiling_helper.design_context_seq）</text>
+<text class="t2" x="40" y="342">= 0.5·w_egc·1{GC&lt;0.25 或 &gt;0.75} + 0.5·w_lc·1{复杂度&lt;0.4} + w_ns·hits/max(hits) + 10·w_var·var_arr (+ sensi + combi)</text>
+<text class="t2" x="40" y="362">变异项权重最大：一个 freq≈1 的 SNP 让 40 nt 设计区风险≈400，极端 GC 仅 20</text>
+<path class="ar" d="M450 374 L450 408"/>
+<!-- PDR -->
+<rect class="b2" x="20" y="408" width="420" height="150" rx="10"/>
+<text x="40" y="432" style="font-weight:700">② PDR 随机搜索（generate_context）</text>
+<text class="t2" x="40" y="454">N = 500·L / max_amp 次随机重启（示例 35584）</text>
+<text class="t2" x="40" y="474">每次：依次放 fP₁ rP₁ fP₂ rP₂ …（40 nt 设计区）</text>
+<text class="t2" x="40" y="494">窗口取风险最低前 30% 里随机选一个</text>
+<text class="t2" x="40" y="514">Loss = Σ(最高10% 风险²) / coverage²</text>
+<text class="t2" x="40" y="538">取 Loss 最小的 PDR 集合；奇偶扩增子 → pool 1 / 2</text>
+<rect class="b2" x="460" y="408" width="420" height="150" rx="10"/>
+<text x="480" y="432" style="font-weight:700">③ 引物候选（primer_generator.get）</text>
+<text class="t2" x="480" y="454">3' 端对齐 PDR 内每个位置，向 5' 延伸</text>
+<text class="t2" x="480" y="474">至少 15 nt，直到 ΔG ≤ −11.8 或 36 nt</text>
+<text class="t2" x="480" y="494">过滤 GC∈[0.2,0.75]、复杂度≥0.4、3' 5nt 无变异</text>
+<text class="t2" x="480" y="514">自身发夹/二聚体 badness = 2·WAlignScore</text>
+<text class="t2" x="480" y="538">每个 PDR 约 15 个候选 → 每扩增子 ≈ 240 个 fP–rP 对</text>
+<path class="ar" d="M440 483 L460 483"/>
+<path class="ar" d="M450 558 L450 592"/>
+<!-- SADDLE -->
+<rect class="b4" x="20" y="592" width="860" height="86" rx="10"/>
+<text x="40" y="616" style="font-weight:700">④ SADDLE 模拟退火（optimize + PrimerSetBadnessFast），每个 pool 独立</text>
+<text class="t2" x="40" y="638">状态 = 每个扩增子选哪对引物；一步 = 随机换一个扩增子的引物对；Loss = Σ单引物 badness + k-mer 哈希二聚体评分</text>
+<text class="t2" x="40" y="658">T₀=1000，线性降温 10 步 + 10 步 T=0，每步 1000 次尝试；接受概率 2^((旧−新)/T)</text>
+<path class="ar" d="M450 678 L450 704"/>
+<!-- out -->
+<rect class="b3" x="20" y="704" width="560" height="48" rx="10"/><text x="40" y="726" style="font-weight:700">输出 to_df / save</text><text class="t2" x="40" y="744">CSV（1-based 坐标）· ARTIC BED · 交互 HTML · .olvd</text>
+<rect class="b1" x="600" y="704" width="280" height="48" rx="10"/><text x="620" y="726" style="font-weight:700">验证 specificity / sensitivity</text><text class="t2" x="620" y="744">BLAST 非特异扩增子 · MSA 灵敏度</text>
+</svg>
+</div>
+
+<h2 id="s1">1 · build：把序列特征变成逐碱基“风险”</h2>
+<div class="card step">
+<h3>1.1 变异 → <code>var_arr</code></h3>
+<p>每行 <code>[START, STOP]</code> 把区间的 <code>var_arr</code> 加上 <code>FREQ</code>（缺省按 1.0）；重叠累加；最后整体 <code>√</code>，把 1% 的变异放大到 0.1，让低频变异也被注意到。变异位置在序列里被<strong>大写</strong>，之后 <code>check_SNP</code> 就靠大写来拒绝 3' 端含变异的引物。</p>
+<h3>1.2 滑窗与碱基级平均</h3>
+<p>窗口 28 nt、步长 14（<code>n_cycle=2</code>），序列两端对称裁剪。每个碱基的分数 = 覆盖它的 2 个窗口的均值。GC 用碱基比例；<strong>复杂度</strong>是词长 1/2/3 的 Shannon 熵分别除以其最大值（2/4/6 bit）后取最小值，如 <code>ATATAT…</code> 仅 0.17，<code>AAAA…</code> 为 0。</p>
+<h3>1.3 非特异性 <code>hits_arr</code></h3>
+<p>对每个窗口跑 <code>blastn-short</code>，数 HSP 条数（<code>rough</code> 模式）。没有 BLAST 库时全部为 0。</p>
+<div class="callout bad"><strong>实测发现：</strong>在合成库里，随机窗口平均有 ≈9 条 HSP（最高 32），而植入的精确拷贝只有 ≈11 条——<strong>信号淹没在噪声里</strong>。改用仓库自己 <code>specificity</code> 用的 <code>precise</code> 过滤（3' 端无悬挂、3' 5nt 至多 1 错配、总错配≤4）后，背景≈0，植入位点清晰（20 份重复拷贝=20）。官方人类库同理：99.9% 的位置命中数&gt;0。</div>
+<figure><img src="{{img:ns_rough_vs_precise}}" alt="rough vs precise"><figcaption>合成背景库：上=build 使用的 rough 计数；下=specificity 使用的 precise 过滤。虚线为植入位点。</figcaption></figure>
+</div>
+<div class="card step">
+<h3>1.4 组装 <code>risk</code></h3>
+<table><tr><th>分量</th><th>公式</th><th>量级</th></tr>
+<tr><td>极端 GC</td><td>0.5·w_egc·1{GC&lt;0.25 或 &gt;0.75}</td><td>0 / 0.5 每碱基</td></tr>
+<tr><td>低复杂度</td><td>0.5·w_lc·1{复杂度&lt;0.4}</td><td>0 / 0.5</td></tr>
+<tr><td>非特异</td><td>w_ns·hits/max(hits)</td><td>0–1（按最大值归一化）</td></tr>
+<tr><td>变异</td><td>10·w_var·√Σfreq</td><td>0–10</td></tr>
+<tr><td>灵敏度 (--deg)</td><td>0.1·w_sensi·(100−sens)</td><td>0–10</td></tr>
+<tr><td>简并数 (--deg)</td><td>w_combi·(组合数−1)</td><td>0–∞</td></tr></table>
+<figure><img src="{{img:risk_array}}" alt="risk"><figcaption>示例 SARS-CoV-2 的风险数组（堆叠）。我用官方 hits_arr 和上述公式重算，与官方 <code>risk_arr</code> 完全一致。</figcaption></figure>
+</div>
+
+<h2 id="s2">2 · PDR 搜索：把引物设计区放到风险低的地方</h2>
+<div class="card step">
+<p><strong>PDR</strong>（primer design region）是固定 40 nt 的区域，后面才在里面挑具体引物。<code>find_min_loc</code> 枚举区间内所有 40 nt 窗口，算风险和，在<strong>最低的 30%</strong> 里随机选一个（既贪心又保留多样性）。<code>generate_context</code> 按 fP₁→rP₁→fP₂→rP₂… 依次放置，约束：</p>
+<ul><li>扩增子长度在 [min_amp, max_amp]（默认 [0.9·420, 420]）；</li><li>fPₖ 必须在 rPₖ₋₁ 之前（相邻扩增子重叠）且在 rPₖ₋₂ 之后（隔一个不重叠，才能交替放进两管）。</li></ul>
+<p>Loss = (风险最高的 10% PDR 的风险平方和) / coverage²：只惩罚最糟的，且惩罚覆盖不足。重复 N=500·L/max_amp 次（示例 35584）取最小。</p>
+<figure><img src="{{img:pdr_loss}}" alt="PDR loss"><figcaption>左：随机重启的 Loss（我的 1500 次 vs 官方 35584 次）；右：最优布局。</figcaption></figure>
+<div class="callout"><strong>实测加速：</strong>原 <code>find_min_loc</code> 在 Python 里逐窗口求和，单次 <code>generate_context</code> ≈ 0.22 s，35584 次约 2.1 小时（单核）。对 <code>risk</code> 预先做一次滑窗求和，随机数消耗序列不变，<strong>结果逐位相同</strong>，单次降到 7.6 ms（<strong>≈28×</strong>），完整 35584 次约 5 分钟，得到的最优 PDR 集合与官方 <code>.olvd</code> 完全相同（146 个扩增子，Loss 36.55），且 35584 个 Loss 排序后逐一相等。</div>
+</div>
+
+<h2 id="s3">3 · 引物候选</h2>
+<div class="card step">
+<p>在每个 PDR 里让引物 <strong>3' 端依次对齐每个位置</strong>，向 5' 端延长：先到 15 nt，再继续直到 ΔG ≤ −11.8 kcal/mol 或 36 nt；然后检查 GC、复杂度和 3' 端 5 nt 是否含变异。ΔG 是最近邻模型：</p>
+<pre><code>ΔG = ΔG_init + Σ ΔG_stack(相邻碱基对)
+ΔG_stack = ΔH − T·(ΔS + 0.368·ln[Na⁺])   (T=60℃, [Na⁺]=0.18 M)</code></pre>
+<p>候选的“个体 badness”= 2·<code>WAlignScore</code>（引物与自身反向互补的局部比对，评估发夹/自二聚体）。某个 PDR 没有候选时自动放宽（关 <code>check_SNP</code>、GC 区间±0.05、复杂度−0.05）。示例中每个 PDR 平均约 15 个候选（6–24），与官方每个 PDR 的候选数完全一致，所以每个扩增子约 240 个 fP–rP 组合进入退火。</p>
+</div>
+
+<h2 id="s4">4 · SADDLE：用模拟退火最小化引物二聚体</h2>
+<div class="card step">
+<p><strong>评分 <code>PrimerSetBadnessFast</code></strong>：把 pool 内所有引物的 3' 端 4/5/6-mer 和内部 7/8-mer 放入哈希计数。对每条引物的反向互补滑窗查表，命中越多、越靠近 3' 端、GC 越多，得分越高：</p>
+<pre><code>badness(p) = Σ  hash_k[kmer] · W_k · 1/(j+1) · 2^#GC        W = {4:1, 5:4, 6:20, 7:100, 8:500}</code></pre>
+<p><strong>退火</strong>：状态=每个扩增子选哪对引物；一步=随机换一个扩增子的引物对并重算全 pool 的 Loss；以 <code>2^((旧−新)/T)</code> 接受变坏的移动。<code>T₀=1000</code>，线性降温 10 步 + 10 步 T=0，每步 1000 次尝试，每个 pool 共 20000 次。</p>
+<figure><img src="{{img:saddle_curve}}" alt="SADDLE"><figcaption>pool-1 退火曲线：我的精简重写（约 1200 步）与官方（20000 步）。</figcaption></figure>
+<table><tr><th>pool-1 引物集（73 对）</th><th>二聚体 badness</th></tr>
+<tr><td>随机选择（20 次平均）</td><td>≈ 70,000</td></tr><tr><td>SADDLE 优化后（官方）</td><td>6,286（低 11 倍）</td></tr></table>
+<p>用原函数全量运行（官方 PDR、seed=10、单线程）约 15 分钟，得到的 fP、rP <strong>与官方 CSV 100% 相同</strong>，两个 pool 的最终 loss 为 6524.20 / 7147.60，与官方学习曲线末值逐位相等。</p>
+<div class="callout"><strong>实测瓶颈：</strong>每一步 ≈ 21 ms，其中 <strong>99% 花在 <code>PrimerSetBadnessFast</code></strong>——一步只换 2 条引物，却把全部 146 条引物的哈希表和查表整体重算。</div>
+</div>
+
+<h2 id="s5">5 · 输出与验证</h2>
+<div class="card step">
+<p><code>to_df</code> 把选定的引物换算为 1-based 坐标并输出 CSV，同时生成 ARTIC/PrimalScheme 的 BED（0-based，<code>_LEFT_1</code>/<code>_RIGHT_1</code>）。示例：146 个扩增子，长度 231–410（均值 327），相邻扩增子平均重叠 125 nt，同管相邻扩增子最小间隔 8–10 nt（不重叠）。</p>
+<figure><img src="{{img:final_design}}" alt="final design"><figcaption>最终设计：蓝=fP，红=rP，灰=扩增子，红色填充=风险。</figcaption></figure>
+<table><tr><th>子命令</th><th>做什么</th><th>实测</th></tr>
+<tr><td><code>specificity</code></td><td>每条引物的 GC、复杂度、ΔG、自比对、二聚体分数；有 BLAST 库时用 <code>precise</code> 模式预测非特异扩增子（同染色体、方向正确、间距&lt;max_amp_len）</td><td>5 项指标与官方 <code>olivar-val_pool-1.csv</code> 一致</td></tr>
+<tr><td><code>sensitivity</code></td><td>引物局部比对到 MSA 共识，统计完全匹配该引物（含简并展开）的序列比例</td><td>H1N1 HA 200 条：保守区引物 99.5%，可变区引物 35%</td></tr></table>
+<figure><img src="{{img:h1n1_variation}}" alt="H1N1 variation"><figcaption>H1N1-HA 200 条序列相对共识的逐位变异频率：1701 个位置中 253 个 ≥1%。</figcaption></figure>
+<p><strong>简并模式 (<code>--deg</code>)</strong>：共识不再取多数碱基，而是按频率从高到低累积到 ≥70%，用 IUPAC 码表示；风险加入 <code>sensi_arr</code> 与 <code>combi_arr</code>，SADDLE 里每个变体按 1/n 浓度计入。实测：同一个可变窗口，普通共识灵敏度 33.5%，用 <code>Y</code>（2 种组合）后升到 75%。</p>
+</div>
+
+<h2 id="repro">复现对照</h2>
+<table><tr><th>环节</th><th>结果</th><th>状态</th></tr>
+<tr><td>build：gc_arr / var_arr / 设计区间</td><td>与官方 .olvr 完全一致</td><td><span class="tag ok">一致</span></td></tr>
+<tr><td>build：comp_arr</td><td>官方恰为当前代码的 2 倍（旧版未除以 n_cycle）</td><td><span class="tag bad">版本差异</span></td></tr>
+<tr><td>risk 数组</td><td>官方 hits_arr + 公式 → 与官方 risk_arr 完全一致</td><td><span class="tag ok">一致</span></td></tr>
+<tr><td>PDR 搜索</td><td>35584 次重启最优集合与官方相同；全部 Loss 序列相同</td><td><span class="tag ok">一致</span></td></tr>
+<tr><td>引物候选数</td><td>每个 PDR 的 fP/rP 候选数与官方相同</td><td><span class="tag ok">一致</span></td></tr>
+<tr><td>SADDLE + to_df</td><td>引物序列 100% 相同；末 loss 6524.20 / 7147.60 相同</td><td><span class="tag ok">一致</span></td></tr>
+<tr><td>specificity 基础指标</td><td>%GC、复杂度、dG、self_align、dimer_score 与官方一致</td><td><span class="tag ok">一致</span></td></tr>
+<tr><td>BLAST 非特异（人类库）</td><td>官方库是 772 MB 的 Git-LFS 文件，本环境未取到；用合成库演示流程</td><td><span class="tag">未复现</span></td></tr></table>
+
+<h2 id="issues">实测发现的问题</h2>
+<table><tr><th>#</th><th>问题</th><th>证据</th><th>状态</th></tr>
+<tr><td>1</td><td><code>main.py</code> 的 f-string 内嵌同类引号，Python &lt;3.12 直接 SyntaxError，但 <code>setup.py</code> 声明 python_requires&gt;=3.8</td><td>解析失败</td><td><span class="tag ok">已修复</span></td></tr>
+<tr><td>2</td><td>BLAST rough 模式：某一批无任何命中时 <code>readline()</code> 返回空，<code>IndexError</code>（README 里提到的错误）</td><td>代码阅读+复现</td><td><span class="tag ok">已修复</span></td></tr>
+<tr><td>3</td><td>简并模式 BLAST 命中<strong>下标错位</strong>：结果按 <code>query_{窗口号}_{变体号}</code> 里的窗口号写入“展开后列表”的位置；窗口一旦展开出&gt;1 个变体，后面全部错位，同窗口多变体互相覆盖</td><td>notebook §11.4：真实每窗口命中 [10, 46, 23, 4]，代码逻辑得到 [10, 46, 4, 0]</td><td><span class="tag bad">未修复</span></td></tr>
+<tr><td>4</td><td><code>get_sensitivity</code> 每个窗口重新读整个 MSA 并重算共识（<code>--deg</code> 下对 ~2100 个窗口各一次）</td><td>200 条序列单次 0.68 s → 约 24 分钟纯重复加载，随 MSA 线性增长</td><td><span class="tag bad">未修复</span></td></tr>
+<tr><td>5</td><td><code>primer_generator.get(check_BLAST=True)</code> 是死代码，会 <code>UnboundLocalError</code>；<code>tiling_helper</code> 里硬编码 <code>check_BLAST=False</code>，所以引物本身的脱靶从未参与设计</td><td>实际调用复现</td><td><span class="tag bad">未修复</span></td></tr>
+<tr><td>6</td><td>BLAST 临时文件写到<strong>包安装目录</strong>（<code>BLAST_query.fasta</code>/<code>BLAST_result.*</code>），并行运行会互相覆盖，只读安装会失败</td><td>代码阅读；运行后这些文件出现在 src/olivar/</td><td><span class="tag bad">未修复（已加入 .gitignore）</span></td></tr>
+<tr><td>7</td><td><code>comp_arr</code> 归一化在版本间改变，阈值 0.4 的含义随之改变；<code>.olvr/.olvd</code> 是 pickle（含 Biopython 对象，换版本可能读不出，且不安全）</td><td>官方 .olvr 与当前输出比值恒为 2</td><td><span class="tag bad">未修复</span></td></tr>
+<tr><td>8</td><td><code>optimize</code> 里 <code>existing_primer</code> 被硬编码为空（配置项已注释），“冻结已有引物再优化”的接口存在但不可用；每引物 badness 的保存也被注释</td><td>代码阅读</td><td><span class="tag bad">未修复</span></td></tr></table>
+
+<h2 id="improve">改进建议</h2>
+<p>优先级：<span class="prio p0">P0</span> 低成本、已验证或几乎必然受益；<span class="prio p1">P1</span> 中等工作量、预期收益明确；<span class="prio p2">P2</span> 研究性/较大改动。每项都注明是<strong>已实测</strong>还是<strong>基于代码阅读的判断</strong>。</p>
+
+<h3>A. 引物迭代（设计 → 验证 → 修订的闭环）</h3>
+<div class="card">
+<p>目前仓库是“一次性设计”：<code>tiling</code> 给出一套引物，之后的 <code>specificity/sensitivity</code> 只出报告，没有回流到设计。实际项目（新毒株出现、测序发现掉扩增子）需要的是<strong>局部、可复现、不打乱已有实验的迭代</strong>。</p>
+<table><tr><th></th><th>建议</th><th>依据</th></tr>
+<tr><td><span class="prio p0">P0</span></td><td><strong>导出备选引物对</strong>：每个扩增子已有 ≈240 个 fP–rP 组合在 <code>.olvd</code> 里（<code>optimize</code> 列表），按“对 pool 总 loss 的边际贡献”排序，输出每个扩增子的 top-k 备选。某个扩增子掉线时，直接换备选，无需重跑。</td><td>已实测：候选数 15.4×15.8；零额外计算</td></tr>
+<tr><td><span class="prio p0">P0</span></td><td><strong>设计后自动“门禁”</strong>：把 specificity（precise 非特异扩增子）、sensitivity（对最新 MSA，每条引物≥95%）、二聚体离群值（官方 pool-1 的 dimer_score 均值 43、最大 270）合成一张报告，不达标的扩增子列入“待修订”清单。</td><td>已实测：dimer_score 分布 0–270，均值 43</td></tr>
+<tr><td><span class="prio p1">P1</span></td><td><strong>冻结 + 局部重设计</strong>：恢复 <code>existing_primer</code> 接口（代码里已有占位，<code>PrimerSetBadnessFast(existing=…)</code> 也支持），新增 <code>--lock amplicon_ids</code> / <code>--redesign amplicon_ids</code>：已验证的扩增子保持不变，只在失败区域重做 PDR、候选和退火，并把冻结的引物作为二聚体背景。<strong>保持扩增子 ID 不变</strong>，实验室的引物订购/稀释表不用重做。</td><td>代码阅读（tiling_helper.py:407 注释掉的配置）</td></tr>
+<tr><td><span class="prio p1">P1</span></td><td><strong>湿实验反馈入风险数组</strong>：读入每个扩增子的测序深度，对掉线区域加一项 <code>dropout_arr</code>（或直接给对应 PDR 加罚分），并按深度比例调整引物浓度——<code>PrimerSetBadnessFast</code> 已经支持 <code>fP_conc/rP_conc</code>，目前只用来分摊简并变体。</td><td>代码阅读</td></tr>
+<tr><td><span class="prio p1">P1</span></td><td><strong>变异库定期刷新</strong>：用最新基因组重新生成 <code>var.csv</code>/MSA，计算每条<em>已有</em>引物 3' 端 5 nt 的错配频率；超过阈值（如 1%）的引物才进入局部重设计。</td><td>已实测：H1N1 可变区引物灵敏度 35% vs 保守区 99.5%</td></tr>
+<tr><td><span class="prio p1">P1</span></td><td><strong>多种子 + 综合挑选</strong>：PDR 搜索和 SADDLE 都有随机性（seed）。用 3–5 个 seed 跑，再按“总 loss + 最差引物 + 非特异数”选最优，而不是只信一个 seed。</td><td>已实测：重启次数不同，最优 Loss 差异大（1500 次 151 vs 35584 次 36.6）</td></tr>
+<tr><td><span class="prio p2">P2</span></td><td><strong>备份/替代引物池</strong>（ARTIC v4/v5 风格）：对已知易掉线或高变异区域，设计一对“替代引物”放入同一 pool 或第三管，浓度较低。需要把 <code>N_POOLS=2</code>（注释“not to be changed”）参数化。</td><td>代码阅读</td></tr></table>
+</div>
+
+<h3>B. 算法</h3>
+<div class="card">
+<table><tr><th></th><th>建议</th><th>依据</th></tr>
+<tr><td><span class="prio p0">P0</span></td><td><strong>PDR 窗口求和改前缀和</strong>（<code>find_min_loc</code>）。结果逐位相同，单核 28×。另（代码阅读）：<code>pool.imap</code> 的每个任务元组都携带 3 万长的 <code>risk</code> 数组，可用 <code>initializer</code> 放全局以减少进程间传输。</td><td>已实测：215 ms → 7.6 ms；35584 次 2.1 h → ~5 min</td></tr>
+<tr><td><span class="prio p0">P0</span></td><td><strong>非特异性计数改用 3'-端感知规则</strong>：build 阶段也用 <code>precise</code>（或等价的“3' 端精确匹配长度”）来数命中，并对重尾取 <code>log1p</code> 而非除以最大值。</td><td>已实测：rough 信噪比≈1，precise 干净；人类库 99.9% 位置命中&gt;0、/max 后 99 分位仅 0.048</td></tr>
+<tr><td><span class="prio p0">P0</span></td><td>修复 bug #3–#5（简并命中下标、MSA 重复加载、死代码 <code>check_BLAST</code>）。</td><td>见“发现的问题”</td></tr>
+<tr><td><span class="prio p1">P1</span></td><td><strong>SADDLE 增量更新</strong>：维护 k-mer 计数和“每条引物的反向互补 k-mer 命中表”，一步换 2 条引物时只更新受影响的项，复杂度由 O(全部引物) 降到 O(改动)。同时可以用已计算的 <code>comp_badness</code> 做<strong>定向变异</strong>（以与单引物 badness 成比例的概率选扩增子）。</td><td>已实测：99% 时间在全量重算；20000 步×2 pool 约 15 分钟，规模再大（上千重）二次增长</td></tr>
+<tr><td><span class="prio p1">P1</span></td><td><strong>变异风险按 3' 端加权</strong>：目前 PDR 风险是 40 nt 内逐碱基求和，而引物 3' 端的错配远比 5' 端致命；<code>check_SNP</code> 也只看 3' 5 nt 的有/无。建议风险按距 3' 端的距离衰减（如 exp(−d/8)），并按错配类型（3' 端 G:T 等）区分。</td><td>代码阅读；机制上合理，需用 §10.2 类实验量化</td></tr>
+<tr><td><span class="prio p1">P1</span></td><td><strong>PDR 与引物候选联合评分</strong>：现在先用 40 nt 平均风险选 PDR，再在 PDR 里选引物，两步解耦。更好的是用<em>候选引物自身</em>的 3' 加权风险给每个 PDR 打分（或直接让 PDR 的分数 = 该 PDR 最好候选的分数），避免“PDR 平均风险低、但所有候选 3' 端都踩在变异上”。</td><td>代码阅读</td></tr>
+<tr><td><span class="prio p1">P1</span></td><td><strong>热力学模型升级</strong>：目前 ΔG 用固定 ΔH/ΔS 表 + 仅 Na⁺ 校正，没有 Mg²⁺、dNTP、引物浓度；没有 Tm 概念，用 ΔG(60℃) 阈值间接控制。可接入 <code>primer3-py</code> 的 Tm、发夹、同/异源二聚体 ΔG（只对 SADDLE 之后的最终候选和最差 N 条引物做精算，不进退火内循环）。</td><td>代码阅读；官方引物长度 16–34 nt，说明 ΔG 阈值驱动的长度变化很大</td></tr>
+<tr><td><span class="prio p1">P1</span></td><td><strong>扩增子层面的指标</strong>：目前扩增子长度只受 [min,max] 约束，没有 GC、二级结构、预测扩增效率。覆盖均匀度主要由这些决定；可在 PDR 评分里加入 amplicon GC / 长度均衡项，在 pool 分配时考虑长度/GC 平衡。</td><td>代码阅读（示例长度 231–410）</td></tr>
+<tr><td><span class="prio p2">P2</span></td><td><strong>PDR 布局用动态规划/束搜索代替随机重启</strong>：问题是链式结构（相邻扩增子耦合、隔一个耦合），状态为 (fPₖ 起点, rPₖ 起点)，每维只有 ≤~170 个选择，可以在目标 <code>Σ风险</code> 或 minimax 下精确求最优，并给出可证明的最优覆盖。当前随机重启的最优 Loss：1500 次为 151，35584 次才到 36.6。</td><td>已实测：1500 次最优 151 vs 35584 次 36.6；DP 属推断，需实现验证</td></tr>
+<tr><td><span class="prio p2">P2</span></td><td>池数参数化（<code>N_POOLS</code>）与退火调度自适应（温度/步数随 pool 规模和接受率调整，而非固定 1000×20）。</td><td>代码阅读</td></tr></table>
+</div>
+
+<h3>C. 数据库选择</h3>
+<div class="card">
+<p>Olivar 有三类“数据库”：<strong>① BLAST 背景库</strong>（决定非特异性）、<strong>② 变异库</strong>（决定哪些位置要避开）、<strong>③ 参考/MSA</strong>（决定设计靶标）。示例只给了一个 <strong>GRCh38</strong> 背景库（772 MB，Git-LFS，克隆时若没装 LFS 会得到指针文件，BLAST 报 <code>IndexError</code>）。</p>
+<table><tr><th></th><th>建议</th><th>理由 / 依据</th></tr>
+<tr><td><span class="prio p0">P0</span></td><td><strong>按样本类型组合背景库</strong>，而不是只用人类基因组：<br>• 临床鼻咽拭子：人类基因组 + <em>转录组/rRNA</em>（RNA 病毒经反转录，cDNA 背景主要是转录本）+ 近缘病毒（SARS-CoV-1、MERS、229E、NL63、OC43、HKU1）+ 常见呼吸道病原与定植菌（流感、RSV、鼻病毒、链球菌、葡萄球菌、嗜血杆菌）；<br>• 废水/环境：再加 NCBI RefSeq 代表性细菌/病毒基因组或 <code>core_nt</code> 的子集；<br>• 实验对照：PhiX、质控序列。</td><td>脱靶来自“样本里真实存在的核酸”。库越贴近样本，预测越有价值；库越大，rough 模式的噪声越高（需配合 precise）。</td></tr>
+<tr><td><span class="prio p0">P0</span></td><td><strong>库路径与 LFS 的防呆</strong>：运行前检查 <code>.nsq</code> 是否是 LFS 指针（首行 <code>version https://git-lfs…</code>），给出明确错误；README 里直接给“最小可用库”的构建命令（<code>makeblastdb -parse_seqids -hash_index -taxid</code>）。</td><td>已实测：本仓库 <code>.nsq</code> 为 134 字节指针文件</td></tr>
+<tr><td><span class="prio p1">P1</span></td><td><strong>用 k-mer 索引代替“每窗口一次 BLAST”</strong>：对背景库预建 3' 端 12–16-mer 计数（KMC/Jellyfish）或用 bowtie2/BWA 短序列模式，做 3' 端精确匹配 + 允许 1–2 错配的计数。比 blastn-short 快一到两个数量级，且天然 3'-端感知；<code>precise</code> 在 2134 个窗口、30 万碱基的小库上就要 135 s，3 Gb 人类库上会很慢。</td><td>已实测：rough 2 s vs precise 135 s（小库）；precise 才有信噪比</td></tr>
+<tr><td><span class="prio p1">P1</span></td><td><strong>把引物级特异性接入设计</strong>：候选引物每个 PDR 仅约 15 条（全基因组约 4,600 条），对它们<em>逐条</em>做 3' 端感知的脱靶计数（缓存后几分钟），作为 <code>badness</code> 的一项（代码里本来就有 <code>1000·log10(count)⁴</code> 的占位）。</td><td>已实测：候选总数；check_BLAST 现为死代码</td></tr>
+<tr><td><span class="prio p1">P1</span></td><td><strong>变异库用持续更新的公共来源</strong>：Nextstrain / GISAID / NCBI Virus / CoV-Spectrum 的位点频率（最好带时间窗，近期权重大），替代一份静态的 Delta/Omicron CSV。同时区分 SNP 与缺失、保留 3' 端附近的变异详情。MSA 模式下 <code>--min-var</code> 默认 1% 也应随样本量调整。</td><td>代码阅读；示例 CSV 为 397 个位点（Delta/Omicron 特征）</td></tr>
+<tr><td><span class="prio p1">P1</span></td><td><strong>多亚型/高变靶标用 MSA + 简并模式</strong>，并把共识阈值（现硬编码 70%，代码注释“Can set this as a threshold later”）做成参数。</td><td>已实测：可变窗口灵敏度 33.5% → 75%（1 个简并碱基）</td></tr>
+<tr><td><span class="prio p1">P1</span></td><td><strong>中间文件格式</strong>：<code>.olvr/.olvd</code> 改为 JSON + NPZ/Parquet 并写入版本号与配置哈希（含 BLAST 库的路径与修改时间），保证可复现与可迁移，避免 pickle 的安全和版本问题。</td><td>已实测：.olvd 15.7 MB；.olvr 与当前输出的 <code>comp_arr</code> 差 2×</td></tr></table>
+</div>
+
+<h3>建议的落地顺序</h3>
+<div class="card">
+<ol>
+<li>先做 <span class="prio p0">P0</span>：修 bug #3–#5、PDR 前缀和、非特异性改 3'-端感知、BLAST 临时文件改到临时目录、库路径防呆。几乎无风险，收益立即可见。</li>
+<li>再做 <span class="prio p1">P1</span> 里与“迭代”直接相关的三项：备选引物导出、冻结+局部重设计、变异刷新触发的局部重设计。</li>
+<li>然后做 SADDLE 增量更新和 3' 加权变异风险；用 notebook §11 里的对照框架（官方结果作为回归基线）验证不退化。</li>
+<li>最后评估 P2（DP 布局、热力学升级、多池）。</li>
+</ol>
+</div>
+
+<h2 id="run">运行方式</h2>
+<pre><code># 依赖
+pip install biopython "numpy&lt;2" pandas plotly tqdm matplotlib jupyter
+conda install -c bioconda blast mafft      # 或 apt-get install ncbi-blast+ mafft
+
+# 逐步复现（约 5 分钟，FAST=True）
+jupyter nbconvert --to notebook --execute notebooks/Olivar_step_by_step.ipynb
+
+# 重新生成 notebook / 本页
+python notebooks/build_notebook.py
+python docs/build_html.py</code></pre>
+<p class="sub">注：官方示例的人类 BLAST 库需 Git-LFS；本报告里涉及 BLAST 的实验使用合成库。所有加速/改进原型只在 notebook 中验证了与原实现<strong>结果一致</strong>并计时，未改动仓库中的算法代码（仅修复了上面标注“已修复”的两处）。</p>
+</div>
+</body>
+</html>
