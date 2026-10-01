@@ -168,7 +168,12 @@ def BLAST_batch_short(seq_list: list, db: str, n_cpu=1, seq_names=None, mode='ro
                 12. bitscore    bit score
                 '''
                 # get first hsp
-                hsp = handle.readline()[:-1].split('\t')
+                first_line = handle.readline()
+                if not first_line:
+                    # no hit for any query in this batch
+                    pbar.update(batch_stop-batch_start)
+                    continue
+                hsp = first_line[:-1].split('\t')
                 query_name = hsp[0]
                 count = 1
                 for line in handle:
