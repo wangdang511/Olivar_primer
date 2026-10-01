@@ -551,14 +551,11 @@ md(r"""
 ### 11.1 SADDLE 每一步的耗时去哪了？
 """)
 code(r"""
-import cProfile, pstats, io
 np.random.seed(1); import random as _r; _r.seed(1)
 from copy import deepcopy
 ids = [k for k, v in all_plex.items() if v['tube'] == 1]
-def one_step_orig():
-    cur = {k: all_plex[k]['optimize'][0] if 'optimize' in all_plex[k] else None for k in ids}
 tt = {}
-fps = {k: [all_plex[k]['fP_candidate'].iloc[0]['seq']] for k in ids}; rps = {k: [all_plex[k]['rP_candidate'].iloc[0]['seq']] for k in ids}
+fps = {k: all_plex[k]['fP_candidate'].iloc[0]['seq'] for k in ids}; rps = {k: all_plex[k]['rP_candidate'].iloc[0]['seq'] for k in ids}
 t = time.time(); [deepcopy(fps) for _ in range(200)]; tt['deepcopy of 2 dicts'] = (time.time()-t)/200*2
 t = time.time(); [conc_map(fps) for _ in range(200)]; tt['get_concentration x2'] = (time.time()-t)/200*2
 fs, fc = conc_map(fps); rs, rc = conc_map(rps)
@@ -598,7 +595,6 @@ exp, names, vmap = [], [], []
 for i, w in enumerate(words_demo):
     vs = expand_degenerate_sequence(w.lower().upper()); exp += vs; names += [f'query_{i}_{j}' for j in range(len(vs))]; vmap += [i]*len(vs)
 hits, _ = BLAST_batch_short(exp, db=str(WORK/'bgdb'), n_cpu=1, seq_names=names, mode='rough')
-truth = [sum(1 for _ in [0]) for _ in []]
 direct, _ = BLAST_batch_short(exp, db=str(WORK/'bgdb'), n_cpu=1, seq_names=[f'query_{k}' for k in range(len(exp))], mode='rough')
 merged = [0]*len(words_demo)
 for k, hcount in enumerate(hits): merged[vmap[k]] += hcount
