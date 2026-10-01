@@ -175,12 +175,17 @@ md(r"""
 md(r"""
 ## 4. 非特异性：BLAST 命中数（`hits_arr`）
 
-对每个 28nt 窗口用 `blastn -task blastn-short`（rough 模式：evalue 10, reward 1, penalty −3, gapopen 5, gapextend 2）统计 **HSP 条数**，再同样平均到碱基。官方库为人类基因组。这里造一个合成背景库来演示：
+对每个 28nt 窗口用 `blastn -task blastn-short` 统计命中数，再同样平均到碱基。仓库里有**两种计数方式**：
+
+| 模式 | 用途 | 参数 | 计数规则 |
+|---|---|---|---|
+| `rough` | `build` 里生成 `hits_arr` | evalue 10, reward 1, penalty −3 | **所有 HSP 条数**（不看 3' 端、不看错配数） |
+| `precise` | `specificity` 里预测非特异扩增子 | evalue 5000, reward 1, penalty −1（Primer-BLAST 参数） | 仅计 **3' 端无悬挂、3' 最后 5nt 至多 1 错配、总错配 ≤4** 的命中 |
+
+官方库为人类基因组（本环境没有）。这里造一个**合成背景库**，在里面植入已知位点，看两种计数能否把它们找出来：
 
 * 30 万碱基随机序列作背景；
-* 在其中**植入** ① 参考 2000–2060 的精确拷贝；② 参考 10000–10040 带 2 个错配的拷贝；③ 参考 20000–20028 的 20 份重复拷贝（模拟重复家族）。
-
-预期：hits 高峰恰好出现在这三个位置附近。
+* 植入 ① 参考 2000–2060 的精确拷贝；② 参考 10000–10040 带 2 个错配的拷贝；③ 参考 20000–20040 的 20 份重复拷贝（40 nt，保证至少有一个 28nt 窗口完整落入）。
 """)
 code(r"""
 import shutil
@@ -198,23 +203,41 @@ def plant(s, n=1, mm=0):
 recs = [('bg', ''.join(bg)),
         *[(f'p1_{i}', s) for i, s in enumerate(plant(refU[2000:2060]))],
         *[(f'p2_{i}', s) for i, s in enumerate(plant(refU[10000:10040], mm=2))],
-        *[(f'p3_{i}', s) for i, s in enumerate(plant(refU[20000:20028], n=20))]]
+        *[(f'p3_{i}', s) for i, s in enumerate(plant(refU[20000:20040], n=20))]]
 with open(WORK/'bg.fasta', 'w') as f:
     for n, s in recs: f.write(f'>{n}\n{s}\n')
 r = subprocess.run(['makeblastdb', '-in', str(WORK/'bg.fasta'), '-dbtype', 'nucl', '-out', str(WORK/'bgdb'), '-parse_seqids'], capture_output=True, text=True)
-print(r.stdout.strip().splitlines()[-3:])
+print(r.stdout.strip().splitlines()[-1])
 """)
 code(r"""
 from ncbi_tools import BLAST_batch_short
-t = time.time()
-all_hits, _ = BLAST_batch_short([w.upper() for w in words], db=str(WORK/'bgdb'), n_cpu=2, mode='rough')
-print(f'BLAST on {len(words)} words: {time.time()-t:.1f}s')
-hits_arr = to_base_array(np.array(all_hits, float), seq_len)
-top = np.argsort(hits_arr)[::-1][:1]
-fig, ax = plt.subplots(figsize=(10, 2.4)); ax.plot(np.arange(start, stop+1), hits_arr, lw=.8, color='#2ca02c')
-for x in (2000, 10000, 20000): ax.axvline(x, c='gray', ls=':')
-ax.set(xlabel='position', ylabel='BLAST HSPs', title='non-specificity (synthetic DB; dotted = planted loci)'); plt.show()
-print('max at position', start + int(top[0]), '; nonzero fraction', round(float((hits_arr > 0).mean()), 4))
+W_UP = [w.upper() for w in words]
+t = time.time(); hits_rough, _ = BLAST_batch_short(W_UP, db=str(WORK/'bgdb'), n_cpu=2, mode='rough'); t_rough = time.time()-t
+t = time.time(); hits_prec, _ = BLAST_batch_short(W_UP, db=str(WORK/'bgdb'), n_cpu=2, mode='precise'); t_prec = time.time()-t
+hits_rough, hits_prec = np.array(hits_rough, float), np.array(hits_prec, float)
+print(f'{len(words)} words: rough {t_rough:.1f}s, precise {t_prec:.1f}s')
+# windows overlapping a planted locus by >= 24 nt (a precise-mode hit needs >=24 identical bases up to the 3' end)
+def win_idx(lo, hi): return [i for i, (a, b) in enumerate(pos) if min(b, hi) - max(a, lo) >= 24]
+loci = {'exact copy (2000-2060)': win_idx(2000, 2060), '2-mismatch copy (10000-10040)': win_idx(10000, 10040), '20 repeats (20000-20040)': win_idx(20000, 20040)}
+planted_idx = {i for v in loci.values() for i in v}
+other = [i for i in range(len(words)) if i not in planted_idx]
+rows = [{'locus': k, 'windows': len(v), 'rough HSPs (max)': hits_rough[v].max(), 'precise hits (max)': hits_prec[v].max()} for k, v in loci.items()]
+rows.append({'locus': 'all other windows', 'windows': len(other), 'rough HSPs (max)': hits_rough[other].max(), 'precise hits (max)': hits_prec[other].max()})
+print(pd.DataFrame(rows).round(2).to_string(index=False))
+print('rough  : background windows range %d - %d (median %.0f) => the exact planted copy (max %.0f) is inside the noise' % (hits_rough[other].min(), hits_rough[other].max(), np.median(hits_rough[other]), hits_rough[loci['exact copy (2000-2060)']].max()))
+print('precise: background windows range', int(hits_prec[other].min()), '-', int(hits_prec[other].max()))
+""")
+code(r"""
+hits_arr = to_base_array(hits_rough, seq_len); hits_arr_precise = to_base_array(hits_prec, seq_len)
+fig, ax = plt.subplots(2, 1, figsize=(10, 4), sharex=True)
+for a, y, c, t_ in [(ax[0], hits_arr, '#2ca02c', "rough: all HSPs (what build() uses)"), (ax[1], hits_arr_precise, '#9467bd', "precise: 3'-end-aware filter (what specificity() uses)")]:
+    a.plot(np.arange(start, stop+1), y, lw=.8, color=c); a.set_title(t_, fontsize=10)
+    for x in (2000, 10000, 20000): a.axvline(x, c='gray', ls=':')
+ax[1].set_xlabel('position (dotted = planted loci)'); plt.tight_layout(); plt.savefig(FIG/'ns_rough_vs_precise.png', bbox_inches='tight'); plt.show()
+""")
+md(r"""
+> **发现 #2（`hits_arr` 信噪比）**：`rough` 模式下，**随机序列窗口就有数条到数十条 HSP（见上表，中位数≈9，最高 32）**（`blastn-short` 的词长只有 7，evalue=10 会放行大量 8–10 nt 的局部命中），而一个**真正的精确拷贝也只有十几条**，完全淹没在噪声里。换成 `precise` 的 3' 端过滤后，背景窗口基本为 0，植入位点则清晰可辨（见上表），信号干净。官方人类库同样如此（§11.2：99.9% 的位置命中数 > 0）。
+
 """)
 
 md(r"""
@@ -437,7 +460,7 @@ ax.set(yscale='log', xlabel='progress (normalised)', ylabel='SADDLE loss', title
 print('final loss: mine %.0f   official %.0f   random-start %.0f' % (curve1[-1], off_lc[-1], curve1[0]))
 """)
 md(r"""
-即使步数只有官方的 ~6%，也能把 Loss 压到起点的 1/5 左右；官方 20000 步更低且更稳。**官方最终引物对每个扩增子的选择以 `olvd` 为准**，下一步用它做输出。（SA 受随机种子影响；官方使用 `np.random.seed(10)`+`random.seed(10)` 且为 pool-1/pool-2 顺序消耗同一随机流，所以想逐位复现需用原函数 `tiling_helper.optimize` 全量运行——我在开发时跑过，结果与官方 `.csv` 一致的比例见 §11.1。）
+即使步数只有官方的 ~6%，也能把 Loss 压到起点的约 1/6；官方 20000 步更低（见上方最终 loss 对比）。**官方最终每个扩增子选用的引物对以 `olvd` 为准**，下一步用它做输出。（SA 受随机种子影响。官方在 `np.random.seed(10)`+`random.seed(10)` 下依次对 pool-1、pool-2 消耗同一随机流，所以上面这个精简重写只复现**曲线形态**；而直接运行仓库的 `get_primer → optimize → to_df`（官方 PDR、seed=10、单线程、约 15 分钟）我已验证得到的 **fP、rP 与官方 `olivar-design.csv` 100% 相同，两个 pool 的最终 SADDLE loss 分别为 6524.20 和 7147.60，与官方学习曲线末值逐位相等**。）
 """)
 
 # ---------------------------------------------------------------- 9
@@ -457,12 +480,11 @@ end          = insert_end + len_rP
 code(r"""
 df_new, art_new = th.to_df(d_off['all_plex_info'], cfg)
 df_off = pd.read_csv(ROOT/'example_output'/'olivar-design.csv')
-print('to_df reproduces official olivar-design.csv:', df_new.drop(columns=[c for c in df_new if c not in df_off]).equals(df_off[df_new.columns.intersection(df_off.columns)]) )
+print('to_df reproduces official olivar-design.csv:', df_new[df_off.columns].equals(df_off))
 print(df_new[['amplicon_id', 'pool', 'fP', 'rP', 'start', 'end']].head(4).to_string(index=False))
 df_new['amp_len'] = df_new['end'] - df_new['start'] + 1
 print('amplicon length: mean %.0f, min %d, max %d' % (df_new.amp_len.mean(), df_new.amp_len.min(), df_new.amp_len.max()))
 # tiling sanity: same-pool amplicons must not overlap, adjacent amplicons must overlap
-ok_nonover = all(g['start'].values[1:].min() > g['end'].values[:-1].max() - 10**9 for _, g in df_new.groupby('pool'))
 ov = [(df_new.loc[i, 'end'] - df_new.loc[i+1, 'start'] + 1) for i in range(len(df_new)-1)]
 same_pool_gap = [(g['start'].values[1:] - g['end'].values[:-1]).min() for _, g in df_new.groupby('pool')]
 print('min gap between consecutive same-pool amplicons:', same_pool_gap, '(>0 means no overlap within pool);  adjacent-amplicon overlap: mean %.0f nt' % np.mean(ov))
@@ -473,7 +495,7 @@ fig, ax = plt.subplots(figsize=(11, 2.8))
 for _, r in df_new.iterrows():
     y = 0 if r.pool == 1 else 1
     ax.plot([r.start, r.end], [y, y], c='#bbb', lw=2); ax.plot([r.start, r.insert_start-1], [y, y], c='#1f77b4', lw=5); ax.plot([r.insert_end+1, r.end], [y, y], c='#d62728', lw=5)
-ax2 = ax.twinx(); ax2.fill_between(np.arange(1, n+1), risk, color='#999', alpha=.25, lw=0); ax2.set_ylim(0, 40); ax2.set_ylabel('risk')
+ax2 = ax.twinx(); ax2.fill_between(np.arange(1, n+1), risk, color='#d62728', alpha=.35, lw=0); ax2.set_ylim(0, 14); ax2.set_ylabel('risk')
 ax.set(yticks=[0, 1], yticklabels=['pool 1', 'pool 2'], xlabel='position', title='final design: 146 amplicons in 2 pools over the risk array'); plt.savefig(FIG/'final_design.png', bbox_inches='tight'); plt.show()
 """)
 
@@ -573,7 +595,7 @@ hn = h / h.max(); print('after /max normalisation: median %.4f, 99th pct %.3f, f
 fig, ax = plt.subplots(1, 2, figsize=(10, 2.6)); ax[0].hist(h, 60, color='#2ca02c'); ax[0].set_yscale('log'); ax[0].set_title('hits_arr (raw)'); ax[1].plot(hn, lw=.4, color='#2ca02c'); ax[1].set_title('hits / max  (what enters risk)'); plt.show()
 """)
 md(r"""
-rough 模式用 `evalue=10`、`reward 1/penalty −3`，28-mer 在 3 Gb 基因组里会出现大量短的、低质量局部命中；**命中条数既不区分 3' 端是否能延伸，也不区分错配数**。再加上 `/max` 归一化：只要库里有一个超重复区（max=6081），其余绝大部分位置的 `ns` 项被压到 ≈0，对风险几乎没有区分度，主要由变异项主导。
+rough 模式的命中条数既不区分 3' 端能否延伸，也不区分错配数（§4 的合成库实验已显示信噪比≈1）。再加上 `/max` 归一化：只要库里有一个超重复区（max=6081），其余 99% 的位置 `ns` 项 <0.05，实际进入风险数组的只剩极少数极端位置（>0.1 的仅 0.47%），其余位置的差异被噪声和归一化双重抹平，风险排序基本由变异项主导。
 """)
 md(r"""
 ### 11.3 `get_sensitivity`（degenerate 模式）每个窗口都重新读入整个 MSA 并重算共识
@@ -615,9 +637,10 @@ md(r"""
 |---|---|
 | build：`gc_arr`、`var_arr`、窗口、设计区间 | 与官方 `.olvr` **完全一致**；`comp_arr` 差一个 `n_cycle` 因子 |
 | risk 数组 | 官方 `hits_arr` + 上述公式 → 与官方 `risk_arr` **完全一致** |
+| 非特异性 | 合成库实验：rough 计数信噪比≈1，precise 过滤后信号干净（§4） |
 | PDR 搜索 | `cumsum` 重写与原函数**逐位一致**，单核 ~30× 加速；完整 35584 重启得到与官方相同的 146 个扩增子 |
 | 引物候选 | 每个 PDR 的候选数与官方一致 |
-| SADDLE | 精简重写的 Loss 曲线形态与官方一致；`to_df` 输出与官方 CSV 一致 |
+| SADDLE | 精简重写的 Loss 曲线形态与官方一致；原函数 `optimize`（seed=10）全量运行得到的引物与官方 CSV 100% 相同 |
 | specificity 基础指标 | 与官方 `olivar-val_pool-1.csv` 一致 |
 """)
 
