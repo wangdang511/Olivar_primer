@@ -5,3 +5,4 @@ pylint*
 .DS_Store
 build
 *.egg-info
+tutorial/nb_output/
